@@ -1,14 +1,16 @@
 {
-    "name": "renfei/swoole-app",
+    "name": "helloweba/swoole-app",
     "description": "A swoole app.",
     "type": "project",
     "authors": [
         {
-            "name": "liurenfei",
+            "name": "helloweba",
             "email": "13966913@qq.com"
         }
     ],
-    "require": {},
+    "require": {
+        "ext-swoole": ">=1.8"
+    },
     "autoload": {
         "psr-4": { "Helloweba\\Swoole\\": "src/App" }
     }
