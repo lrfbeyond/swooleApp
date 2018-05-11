@@ -27,21 +27,11 @@ class Server
     {
         // 构建Server对象，监听127.0.0.1:9501端口
         $this->serv = new swoole_server($this->host, $this->port);
-        
+
         if (!empty($options)) {
             $this->options = array_merge($this->options, $options);
         }
         $this->serv->set($this->options);
-        // 设置运行时参数
-        // $this->serv->set([
-        //     'worker_num' => 4, //worker进程数,一般设置为CPU数的1-4倍  
-        //     'daemonize' => true, //启用守护进程
-        //     'log_file' => '/data/logs/swoole.log', //指定swoole错误日志文件
-        //     'log_level' => 0, //日志级别 范围是0-5，0-DEBUG，1-TRACE，2-INFO，3-NOTICE，4-WARNING，5-ERROR
-        //     'dispatch_mode' => 1, //数据包分发策略,1-轮询模式
-        //     'task_worker_num' => 4, //task进程的数量
-        //     'task_ipc_mode' => 3, //使用消息队列通信，并设置为争抢模式
-        // ]);
         
 
         // 注册事件
@@ -53,12 +43,18 @@ class Server
         $this->serv->on('Close', [$this, 'onClose']);
 
         // 启动服务
-        $this->serv->start();
+        //$this->serv->start();
     }
 
     protected function init()
     {
         //
+    }
+
+    public function start()
+    {
+        // Run worker
+        $this->serv->start();
     }
 
     public function onStart($serv)
@@ -109,6 +105,11 @@ class Server
     // 监听连接关闭事件
     public function onClose($serv, $fd, $from_id) {
         echo "Client {$fd} close connection\n";
+    }
+
+    public function stop()
+    {
+        $this->serv->stop();
     }
 
 }
