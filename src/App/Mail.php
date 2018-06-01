@@ -12,7 +12,7 @@ class Mail
     protected $host = '127.0.0.1';
     protected $port = 9502;
     // 进程名称
-    protected $taskName = 'swooleMail';
+    protected $taskName = 'swooleMailer';
     // PID路径
     protected $pidPath = '/run/swooleMail.pid';
     // 设置运行时参数
@@ -24,9 +24,22 @@ class Mail
         'dispatch_mode' => 1, //数据包分发策略,1-轮询模式
         'task_worker_num' => 4, //task进程的数量
         'task_ipc_mode' => 3, //使用消息队列通信，并设置为争抢模式
+        //'heartbeat_idle_time' => 600, //一个连接如果600秒内未向服务器发送任何数据，此连接将被强制关闭
+        //'heartbeat_check_interval' => 60, //启用心跳检测，每隔60s轮循一次
     ];
+    // 邮件服务器配置
+    protected $mailConfig = [
+        'smtp_server' => 'smtp.163.com',
+        'username' => 'example@163.com',
+        'password' => '',// SMTP 密码/口令
+        'secure' => 'ssl', //Enable TLS encryption, `ssl` also accepted
+        'port' => 465, // tcp邮件服务器端口
+    ];
+    // 安全密钥
+    protected $safeKey = 'MYgGnQE33ytd2jDFADS39DSEWsdD24sK';
 
-    public function __construct($options = [])
+
+    public function __construct($mailConfig, $options = [])
     {
         // 构建Server对象，监听端口
         $this->serv = new swoole_server($this->host, $this->port);
@@ -35,7 +48,8 @@ class Mail
             $this->options = array_merge($this->options, $options);
         }
         $this->serv->set($this->options);
-        
+
+        $this->mailConfig = $mailConfig;
 
         // 注册事件
         $this->serv->on('Start', [$this, 'onStart']);
@@ -72,16 +86,14 @@ class Mail
     //监听连接进入事件
     public function onConnect($serv, $fd, $from_id)
     {
-        $serv->send( $fd, "Hello {$fd}!" );
+        $serv->send($fd, "Hello {$fd}!" );
     }
 
     // 监听数据接收事件
     public function onReceive(swoole_server $serv, $fd, $from_id, $data)
     {
-        // echo "Get Message From Client {$fd}:{$data}\n";
-        // $serv->send($fd, $data);
         $res['result'] = 'failed';
-        $key = 'MYgGnQE2jDFADS39DSEWsdD2';
+        $key = $this->safeKey;
 
         $req = json_decode($data, true);
         $action = $req['action'];
@@ -89,29 +101,21 @@ class Mail
         $timestamp = $req['timestamp'];
 
         if (time() - $timestamp > 180) {
-            $res['code'] = 4001;
+            $res['code'] = '已超时';
             $serv->send($fd, json_encode($res));
+            exit;
         }
 
         $token_get = md5($action.$timestamp.$key);
         if ($token != $token_get) {
-            $res['code'] = 1608;
+            $res['msg'] = '非法提交';
             $serv->send($fd, json_encode($res));
+            exit;
         }
 
-        switch ($action) {
-            case 'reboot':  //重启
-                //$serv->reload();
-                break;
-            case 'close':  //关闭
-                //$serv->shutdown();
-                break;
-            default: 
-                $res['result'] = 'success';
-                $serv->send($fd, json_encode($res));
-                $serv->task($data);  // 执行异步任务
-                break;
-        }
+        $res['result'] = 'success';
+        $serv->send($fd, json_encode($res)); // 同步返回消息给客户端
+        $serv->task($data);  // 执行异步任务
 
     }
 
@@ -126,25 +130,19 @@ class Mail
         $res['result'] = 'failed';
         $req = json_decode($data, true);
         $action = $req['action'];
-        //$serv->send($task_id, $action);
         echo date('Y-m-d H:i:s')." onTask: [".$action."].\n";
         switch ($action) {
-            case 'sendmail': // 发送邮件
-                $this->sendMailQueue();
+            case 'sendMail': //发送单个邮件
+                $mailData = [
+                    'emailAddress' => '13966913@qq.com',
+                    'subject' => 'swoole实验室',
+                    'body' => '测试This is the HTML message body <b>in bold!</b>,<br/>欢迎访问<a href="https://www.helloweba.net/">www.helloweba.net</a>',
+                    'attach' => '/home/swoole/public/a.jpg'
+                ];
+                $this->sendMail();
                 break;
-            case 'test':
-                include_once('conn.php');
-                $i = 0;
-                swoole_timer_tick(2000, function ($timer_id) use ($i) {
-                    //global $i;
-                    $sql = "SELECT * FROM `hw_mail` WHERE `is_delete`=1 ORDER BY id ASC LIMIT 1";
-                    $this->writeLog('Run task.');
-                    echo date('Y-m-d H:i:s') . "[".$i."] tick-2000ms".PHP_EOL;
-                    $i++;
-                    if ($i == 10) {
-                        swoole_timer_clear($timer_id); //清除定时器
-                    }
-                });
+            case 'sendMailQueue': // 批量队列发送邮件
+                $this->sendMailQueue();
                 break;
             default:
                 break;
@@ -173,28 +171,68 @@ class Mail
         $this->serv->stop();
     }
 
+    private function sendMail($mail_data = [])
+    {
+        $mail = new PHPMailer(true);
+        try {
+            $mailConfig = $this->mailConfig;
+            //$mail->SMTPDebug = 2;        // 启用Debug
+            $mail->isSMTP();   // Set mailer to use SMTP
+            $mail->Host = $mailConfig['smtp_server'];  // SMTP服务
+            $mail->SMTPAuth = true;                  // Enable SMTP authentication
+            $mail->Username = $mailConfig['username'];    // SMTP 用户名
+            $mail->Password = $mailConfig['password'];     // SMTP 密码/口令
+            $mail->SMTPSecure = $mailConfig['secure'];     // Enable TLS encryption, `ssl` also accepted
+            $mail->Port = $mailConfig['port'];    // TCP 端口
+
+            $mail->CharSet  = "UTF-8"; //字符集
+            $mail->Encoding = "base64"; //编码方式
+
+            //Recipients
+            $mail->setFrom($mailConfig['username'], 'Helloweba'); //发件人地址，名称
+            $mail->addAddress($mail_data['emailAddress'], '亲');     // 收件人地址和名称
+            //$mail->addCC('hellowebanet@163.com'); // 抄送
+
+            //Attachments
+            if (isset($mail_data['attach'])) {
+                $mail->addAttachment($mail_data['attach']);         // 添加附件
+            }
+            
+            //$mail->addAttachment('/tmp/image.jpg', 'new.jpg');    // Optional name
+
+            //Content
+            $mail->isHTML(true);                                  // Set email format to HTML
+            $mail->Subject = $mail_data['subject'];
+            $mail->Body    = $mail_data['body'];
+            //$mail->AltBody = '这是在不支持HTML邮件客户端的纯文本格式';
+
+            $mail->send();
+            return true;
+        } catch (\Exception $e) {
+            echo 'Message could not be sent. Mailer Error: '. $mail->ErrorInfo;
+            return false;
+        }
+    }
+
     // 邮件发送队列
     private function sendMailQueue()
     {
-        $ini_arr = $this->parseIni('/etc/mail.ini');
-        $mailer = $ini_arr['Mailer'];
-
         $redis = new \Redis();
         $redis->connect('127.0.0.1', 6379);
        
         $password = '123456x';
         $redis->auth($password);
 
-        swoole_timer_tick(1000, function($timer) use ($redis, $mailer) { // 启用定时器，每1秒执行一次
+        swoole_timer_tick(1000, function($timer) use ($redis) { // 启用定时器，每1秒执行一次
             $value = $redis->lpop('mailerlist');
             if($value){
-                $this->writeLog($value);
+                //echo '获取redis数据:' . $value;
                 $json = json_decode($value, true);
                 $start = microtime(true);
-                $rs = $this->sendMailer($mailer, $json);
+                $rs = $this->sendMail($json);
                 $end = microtime(true);
                 if ($rs) {
-                    echo '发送成功！耗时:'. round($end - $start, 3).'秒'.PHP_EOL;
+                    echo '发送成功！'.$value.', 耗时:'. round($end - $start, 3).'秒'.PHP_EOL;
                 } else { // 把发送失败的加入到失败队列中，人工处理
                     $redis->rpush("mailerlist_err", $value);
                 }
@@ -203,18 +241,5 @@ class Mail
                 echo "Emaillist出队完成";
             }
         });
-    }
-
-    private function sendMailer($mailer, $data)
-    {
-        include_once('lib/email.php');
-        $mail = new Email($mailer['smtp_server'], 25);
-        $mail->setLogin($mailer['mail_user'], $mailer['mail_pass']);
-        $mail->addTo($data['email'], ''); //receiver's name is optional
-        $mail->setFrom($mailer['mail_user'], 'name'); //sender's name is optional
-        $mail->setSubject($data['title']);
-        $mail->setMessage($data['content'], true); //支持html
-        $rs = $mail->send();
-        return $rs;
     }
 }

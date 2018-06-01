@@ -1,0 +1,20 @@
+
+
+在/etc/systemd/system/目录中，可以创建一个swoole.service文件
+
+
+编写完成后需要reload守护进程使其生效
+systemctl  daemon-reload
+
+#启动服务
+systemctl start swoole.service
+#reload服务
+systemctl reload swoole.service
+#关闭服务
+systemctl stop swoole.service
+
+#查看服务状态
+systemctl status swoole.service
+
+#设置开机启动
+systemctl enable swoole.service
