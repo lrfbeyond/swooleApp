@@ -28,6 +28,12 @@ class Chat
     // 安全密钥
     protected $safeKey = 'MYgGnQE33ytd2jDFADS39DSEWsdD24sK';
 
+    protected $mmpic = [
+        'http://pic15.photophoto.cn/20100402/0036036889148227_b.jpg',
+        'http://pic23.nipic.com/20120814/5914324_155903179106_2.jpg',
+        'http://pic40.nipic.com/20140403/8614226_162017444195_2.jpg'
+    ];
+
     public function __construct($options = [])
     {
         $this->ws = new swoole_websocket_server($this->host, $this->port);
@@ -62,15 +68,31 @@ class Chat
     public function onMessage(swoole_websocket_server $ws, $frame)
     {
         //$ws->push($frame->fd, "server-push:".date("Y-m-d H:i:s"));
-
+        $connets = $ws->connections;
+        echo count($connets)."\n";
+        echo $frame->data. "\n";
         foreach ($ws->connections as $fd) {
-            $ws->push($fd, $this->reply($frame->data));
+            //$ws->push($fd, $this->reply($frame->data));
+            //发送二进制数据：
+            if ($frame->data == '图片') {
+                $ws->push($fd, file_get_contents('https://www.helloweba.net/images/hellowebanet.png'), WEBSOCKET_OPCODE_BINARY);
+            } elseif ($frame->data == '美女') {
+                $mmpic = $this->mmpic;
+                $picKey = array_rand($mmpic);
+                $ws->push($fd, file_get_contents($mmpic[$picKey]), WEBSOCKET_OPCODE_BINARY);
+            } else {
+                $ws->push($fd, $this->reply($frame->data));
+            }
+            
         }
     }
 
-    public function onClose($ws, $fd)
+    public function onClose($ws, $fid)
     {
-        echo "client {$fd} closed\n";
+        echo "client {$fid} closed\n";
+        foreach ($ws->connections as $fd) {
+            $ws->push($fd, $fid. '已离开！');
+        }
     }
 
     private function reply($str) {
@@ -85,6 +107,9 @@ class Chat
                 break;
             case 'ping':
                 $res = 'PONG.';
+                break;
+            case 'time':
+                $res = date('H:i:s');
                 break;
             
             default:
